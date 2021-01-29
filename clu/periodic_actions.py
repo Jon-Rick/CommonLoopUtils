@@ -121,7 +121,7 @@ class ReportProgress(PeriodicAction):
 
   def __init__(self,
                *,
-               num_train_steps: int,
+               num_train_steps: Optional[int] = None,
                writer: Optional[MetricWriter] = None,
                every_steps: Optional[int] = None,
                every_secs: Optional[float] = 60.0):
@@ -139,7 +139,9 @@ class ReportProgress(PeriodicAction):
       every_secs: How often to report progress as time interval.
     """
     super().__init__(every_steps=every_steps, every_secs=every_secs)
-    self._num_train_steps = num_train_steps
+    # Check for negative values, e.g. tf.data.UNKNOWN/INFINITE_CARDINALTY.
+    self._num_train_steps = num_train_steps if (num_train_steps is not None and
+                                                num_train_steps >= 0) else None
     self._writer = writer
     self._waiting_for_part = collections.defaultdict(queue.Queue)
     self._time_per_part = collections.defaultdict(float)
@@ -156,9 +158,11 @@ class ReportProgress(PeriodicAction):
 
   def _apply(self, step: int, t: float):
     steps_per_sec = (step - self._previous_step) / (t - self._previous_time)
-    eta_seconds = (self._num_train_steps - step) / steps_per_sec
-    message = (f"{100 * step / self._num_train_steps:.1f}% @{step}, "
-               f"{steps_per_sec:.1f} steps/s, ETA: {eta_seconds / 60:.0f} min")
+    message = f"{steps_per_sec:.1f} steps/s"
+    if self._num_train_steps:
+      eta_seconds = (self._num_train_steps - step) / steps_per_sec
+      message += (f", {100 * step / self._num_train_steps:.1f}% @{step}, "
+                  f"ETA: {eta_seconds / 60:.0f} min")
     if self._time_per_part:
       total = time.time() - self._t0
       message += " ({:.0f} min : {})".format(total / 60, ", ".join(
